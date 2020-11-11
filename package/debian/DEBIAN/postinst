@@ -1,0 +1,31 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]
+then
+  groupadd -r thingsplex || true
+  groupadd -r defa || true
+
+  useradd -r -N -M -d / -s /bin/false -g thingsplex defa || true
+
+  chown -R defa:thingsplex /var/log/thingsplex/defa/ || true
+  chown -R defa:defa /opt/thingsplex/defa/ || true
+fi
+
+deb-systemd-helper unmask defa.service >/dev/null || true
+
+if deb-systemd-helper --quiet was-enabled defa.service; then
+  systemctl enable defa.service || true
+else
+  deb-systemd-helper update-state defa.service >/dev/null || true
+fi
+
+if [ -d /run/systemd/system ]; then
+  systemctl --system daemon-reload >/dev/null || true
+
+  if [ -n "$2" ]; then
+    deb-systemd-invoke try-restart defa.service >/dev/null || true
+  else
+    deb-systemd-invoke start defa.service >/dev/null || true
+  fi
+fi
