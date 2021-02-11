@@ -17,6 +17,8 @@ type FromFimpRouter struct {
 	appLifecycle *model.Lifecycle
 	configs      *model.Configs
 	states       *model.States
+	resetToken   *model.ResetToken
+	loginToken   *model.LoginToken
 }
 
 func NewFromFimpRouter(mqt *fimpgo.MqttTransport, appLifecycle *model.Lifecycle, configs *model.Configs, states *model.States) *FromFimpRouter {
@@ -47,8 +49,8 @@ func (fc *FromFimpRouter) Start() {
 }
 
 func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
-	resetToken := model.ResetToken{}
-	loginToken := model.LoginToken{}
+	// resetToken := model.ResetToken{}
+	// loginToken := model.LoginToken{}
 	ns := model.NetworkService{}
 	// var chargerObject model.ChargerObject
 	log.Debug("New fimp msg")
@@ -59,9 +61,28 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 		switch newMsg.Payload.Type {
 		case "cmd.charge.start":
 			// get address
-			//
+			for _, charger := range fc.states.Chargers.Data.ReceivingAccess {
+				if addr == charger.ChargePoint.ID {
+					err := model.StartCharging(addr, fc.configs.UserID, fc.configs.AccessToken)
+					if err != nil {
+						log.Error(err)
+					}
+					// fc.mqt.Publish(adrOperatingMode, msgOperatingMode)
+				}
+			}
+
+			// send ChargeStart to that address
 		case "cmd.charge.stop":
-			// TODO: This is an example . Add your logic here or remove
+			// get address
+			for _, charger := range fc.states.Chargers.Data.ReceivingAccess {
+				if addr == charger.ChargePoint.ID {
+					err := model.StopCharging(addr, 2, fc.configs.UserID, fc.configs.AccessToken)
+					if err != nil {
+						log.Error(err)
+					}
+					// fc.mqt.Publish(adrOperatingMode, msgOperatingMode)
+				}
+			}
 		case "cmd.state.get_report":
 			// TODO
 		case "cmd.smart_charge.set":
@@ -142,10 +163,12 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 					var chargerSelect []interface{}
 					manifest.Configs[0].ValT = "str_map"
 					manifest.Configs[0].UI.Type = "list_checkbox"
-					for _, charger := range fc.states.Charger.ReceivingAccess {
+					for _, charger := range fc.states.Chargers.Data.ReceivingAccess {
+						// for _, charger := range data.ReceivingAccess {
 						ChargerID := fmt.Sprintf("%v", charger.ChargePoint.ID)
 						ChargerName := ChargerID
 						chargerSelect = append(chargerSelect, map[string]interface{}{"val": ChargerID, "label": map[string]interface{}{"en": ChargerName}})
+						// }
 					}
 					manifest.Configs[0].UI.Select = chargerSelect
 				} else {
@@ -194,21 +217,39 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 			}
 
 			if fc.configs.PhoneNr != conf.PhoneNr {
+				log.Debug("Old phoneNr: ", fc.configs.PhoneNr)
+				log.Debug("New phoneNr: ", conf.PhoneNr)
 				fc.configs.PhoneNr = conf.PhoneNr
-				fc.configs.UserID, err = resetToken.ResetPassword(fc.configs.PhoneNr)
+				fc.configs.UserID, err = fc.resetToken.ResetPassword(fc.configs.PhoneNr)
 				if err != nil {
 					log.Error(err)
 				}
 			}
 
 			if fc.configs.SMSCode != conf.SMSCode {
+				log.Debug("Old smsCode: ", fc.configs.SMSCode)
+				log.Debug("New smsCode: ", conf.SMSCode)
 				fc.configs.SMSCode = conf.SMSCode
-				fc.configs.AccessToken, err = loginToken.Login(fc.configs.UserID, fc.configs.SMSCode)
+				fc.configs.AccessToken, err = fc.loginToken.Login(fc.configs.UserID, fc.configs.SMSCode)
 				if err != nil {
-					log.Error(err)
+					log.Error("Error: ", err)
 				}
+				log.Debug("Getting chargers...")
+				fc.states.Chargers.Data, err = model.GetChargers(fc.configs.UserID, fc.configs.AccessToken)
+				if err != nil {
+					log.Error("Error: ", err)
+				}
+				fc.states.AliasMap, err = model.GetAliasMap(fc.configs.UserID, fc.configs.AccessToken)
+				if err != nil {
+					log.Error("Error: ", err)
+				}
+				fc.states.ChargeSession, err = model.GetCharging(fc.configs.UserID, fc.configs.AccessToken)
+				if err != nil {
+					log.Error("Error: ", err)
+				}
+				fc.states.SaveToFile()
 			}
-
+			log.Debug("conf: ", conf)
 			fc.configs.SelectedChargers = conf.SelectedChargers
 			if len(fc.configs.SelectedChargers) != 0 {
 				fc.appLifecycle.SetConfigState(model.ConfigStateConfigured)
@@ -218,6 +259,9 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				fc.appLifecycle.SetConfigState(model.ConfigStateNotConfigured)
 			}
 			if err = fc.configs.SaveToFile(); err != nil {
+				log.Error(err)
+			}
+			if err = fc.states.SaveToFile(); err != nil {
 				log.Error(err)
 			}
 			log.Debugf("App reconfigured . New parameters : %v", fc.configs)
@@ -232,15 +276,16 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				fc.mqt.Publish(adr, msg)
 			}
 
-			for _, charger := range fc.states.Charger.ReceivingAccess {
-				for _, selectedChargers := range fc.configs.SelectedChargers {
-					if selectedChargers == charger.ChargePoint.ID {
-						inclReport := ns.MakeInclusionReport(selectedChargers, charger.ChargePoint.ID)
-						msg := fimpgo.NewMessage("evt.thing.inclusion_report", "zaptec", fimpgo.VTypeObject, inclReport, nil, nil, nil)
+			for _, selectedCharger := range fc.configs.SelectedChargers {
+				for _, charger := range fc.states.Chargers.Data.ReceivingAccess {
+					if selectedCharger == charger.ChargePoint.ID {
+						inclReport := ns.MakeInclusionReport(selectedCharger, selectedCharger)
+						msg := fimpgo.NewMessage("evt.thing.inclusion_report", "defa", fimpgo.VTypeObject, inclReport, nil, nil, nil)
 						msg.Source = "defa"
-						adr := fimpgo.Address{MsgType: fimpgo.MsgTypeEvt, ResourceType: fimpgo.ResourceTypeAdapter, ResourceName: "zaptec", ResourceAddress: "1"}
+						adr := fimpgo.Address{MsgType: fimpgo.MsgTypeEvt, ResourceType: fimpgo.ResourceTypeAdapter, ResourceName: "defa", ResourceAddress: "1"}
 						fc.mqt.Publish(&adr, msg)
 					}
+					// if selectedCharger == charger.
 				}
 			}
 
