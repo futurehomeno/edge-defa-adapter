@@ -5,4 +5,5 @@ if [ -d /run/systemd/system ] && [ "$1" = remove ]; then
   deb-systemd-invoke stop defa.service >/dev/null
   systemctl disable defa.service || true
   rm /var/log/thingsplex/defa/* || true
+  rm /opt/thingsplex/defa/data/* || true
 fi
