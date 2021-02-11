@@ -90,8 +90,10 @@ func (cf *Configs) LoadDefaults() error {
 }
 
 func (cf *Configs) IsConfigured() bool {
-	// TODO : Add logic here
-	return true
+	if cf.PhoneNr != "" && cf.SMSCode != "" {
+		return true
+	}
+	return false
 }
 
 type ConfigReport struct {

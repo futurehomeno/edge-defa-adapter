@@ -21,9 +21,10 @@ type States struct {
 	ConfiguredAt string `json:"configuret_at"`
 	ConfiguredBy string `json:"configures_by"`
 
-	Charger       *Charger  `json:"chargers"`
-	ChargeSession *Charging `json:"charging"`
-	AliasMap      *Charger2 `json:"alias_map"`
+	Chargers           Chargers        `json:"chargers"`
+	ChargeSession      *Charging       `json:"charging"`
+	AliasMap           *Charger2       `json:"alias_map"`
+	LastChargerObjects []ChargerObject `json:"last_charger_object"`
 }
 
 func NewStates(workDir string) *States {
@@ -81,7 +82,7 @@ func (st *States) LoadDefaults() error {
 }
 
 func (st *States) IsConfigured() bool {
-	if len(st.Charger.ReceivingAccess) > 0 {
+	if st.Chargers.Data != nil {
 		return true
 	}
 	return false
