@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/futurehomeno/fimpgo"
@@ -68,46 +69,119 @@ func main() {
 		appLifecycle.SetAuthState(model.AuthStateNotAuthenticated)
 	}
 
-	states.Charger, err = model.GetChargers(configs.UserID, configs.AccessToken)
-	states.AliasMap, err = model.GetAliasMap(configs.UserID, configs.AccessToken)
-	states.ChargeSession, err = model.GetCharging(configs.UserID, configs.AccessToken)
-	log.Debug("----------------------------")
-	log.Debug("States.Charger: ", states.Charger.ReceivingAccess[0].ChargePoint)
-	log.Debug("States.AliasMap: ", states.AliasMap)
-	log.Debug("States.Charging: ", states.ChargeSession)
-	states.SaveToFile()
+	// states.Charger, err = model.GetChargers(configs.UserID, configs.AccessToken)
+	// states.AliasMap, err = model.GetAliasMap(configs.UserID, configs.AccessToken)
+	// states.ChargeSession, err = model.GetCharging(configs.UserID, configs.AccessToken)
+	// log.Debug("----------------------------")
+	// log.Debug("States.Charger: ", states.Charger.ReceivingAccess[0].ChargePoint)
+	// log.Debug("States.AliasMap: ", states.AliasMap)
+	// log.Debug("States.Charging: ", states.ChargeSession)
+	// states.SaveToFile()
 
 	log.Debug("----------------------------")
 
-	// pollString := configs.PollTimeSec
-	// pollTime, err := strconv.Atoi(pollString)
+	pollString := configs.PollTimeSec
+	pollTime, err := strconv.Atoi(pollString)
+	var chargerObject model.ChargerObject
+	loginToken := *&model.LoginToken{}
 
-	// log.Info("Starting ticker...")
-	// log.Debug("---------------------------------")
-	// ticker := time.NewTicker(time.Duration(pollTime) * time.Second)
+	log.Info("Starting ticker...")
+	log.Debug("---------------------------------")
+	ticker := time.NewTicker(time.Duration(pollTime) * time.Second)
 
-	// var chargeObject model.ChargerObject
+	for range ticker.C {
+		if states.Chargers.Data == nil {
+			if configs.AccessToken == "" || configs.UserID == "" {
+				log.Info("User needs to log in.")
+			}
+		} else {
+			log.Debug("Getting chargers...")
+			var err1 error
+			var err2 error
+			var err3 error
 
-	// for range ticker.C {
-	// 	if configs.AccessToken == "" && configs.UserID == "" {
-	// 		log.Info("User needs to log in.")
-	// 	} else {
-	// 		if len(states.Chargers.Data) == 0 {
-	// 			log.Debug("Getting cargers...")
-	// 			log.Debug("-----------------------------------------")
-	// 			states.Chargers, err = model.GetChargers(configs.UserID, configs.AccessToken)
-	// 			if err != nil {
-	// 				log.Error("Error: ", err)
-	// 				if err.Error() == "401" {
-	// 					configs.AccessToken = ""
-	// 				}
-	// 			} else {
-	// 				log.Debug("Charger count: ", len(states.Chargers.Data))
-	// 			}
-	// 		}
+			states.Chargers.Data, err1 = model.GetChargers(configs.UserID, configs.AccessToken)
+			if err1 != nil {
+				log.Error("Error1: ", err1)
+			}
+			states.AliasMap, err2 = model.GetAliasMap(configs.UserID, configs.AccessToken)
+			if err2 != nil {
+				log.Error("Error2: ", err2)
+			}
+			states.ChargeSession, err3 = model.GetCharging(configs.UserID, configs.AccessToken)
+			if err3 != nil {
+				log.Error("Error3: ", err3)
+			}
+			if err1 != nil || err2 != nil || err3 != nil {
+				log.Error("Something is wrong...: ", err1, err2, err3)
 
-	// 	}
-	// }
+			}
+
+			states.SaveToFile()
+
+			log.Debug("---------------SELECTED CHARGER SECTION BEGINNING---------------")
+			for _, selectedCharger := range configs.SelectedChargers {
+				for p, charging := range *states.ChargeSession {
+					// length := len(states.Chargers.Data.ReceivingAccess)
+					// for p, realCharger := range states.Chargers.Data.ReceivingAccess {
+					// if charging.ChargeSession.ChargePointID == realCharger.ChargePoint.ID {
+					if selectedCharger == charging.ChargeSession.ChargePointID {
+						for _, connector := range states.AliasMap.ReceivingAccess[p].ChargePoint.AliasMap {
+							if len(states.LastChargerObjects) < p {
+								states.LastChargerObjects = append(states.LastChargerObjects, chargerObject)
+								states.LastChargerObjects[p-1].Name = selectedCharger
+							}
+							if len(states.LastChargerObjects) > 0 {
+								// if !reflect.DeepEqual(states.LastChargerObjects[q].Status, connector.Status) {
+								for s, charger := range states.LastChargerObjects {
+									if charger.Name == selectedCharger {
+										if states.LastChargerObjects[s].Status != connector.Status {
+											log.Debug("Old status: ", states.LastChargerObjects[s].Status)
+											log.Debug("New status: ", connector.Status)
+											msgOperatingMode := fimpgo.NewMessage("evt.state.report", "defa", fimpgo.VTypeString, connector.Status, nil, nil, nil)
+											msgOperatingMode.Source = "defa"
+											adrOperatingMode := &fimpgo.Address{
+												MsgType:         fimpgo.MsgTypeEvt,
+												ResourceType:    fimpgo.ResourceTypeDevice,
+												ResourceName:    model.ServiceName,
+												ResourceAddress: "1",
+												ServiceName:     "chargepoint",
+												ServiceAddress:  selectedCharger}
+											mqtt.Publish(adrOperatingMode, msgOperatingMode)
+
+											states.LastChargerObjects[s].Status = connector.Status
+										}
+										if states.LastChargerObjects[s].Power != connector.Power {
+											log.Debug("Old power: ", states.LastChargerObjects[s].Power)
+											log.Debug("New power: ", connector.Power)
+											msgPower := fimpgo.NewMessage("evt.power.report", "defa", fimpgo.VTypeString, connector.Power, nil, nil, nil)
+											msgPower.Source = "defa"
+											adrPower := &fimpgo.Address{
+												MsgType:         fimpgo.MsgTypeEvt,
+												ResourceType:    fimpgo.ResourceTypeDevice,
+												ResourceName:    model.ServiceName,
+												ResourceAddress: "1",
+												ServiceName:     "chargepoint",
+												ServiceAddress:  selectedCharger}
+											mqtt.Publish(adrPower, msgPower)
+
+											states.LastChargerObjects[s].Power = connector.Power
+										}
+									}
+								}
+							} else {
+								states.LastChargerObjects = append(states.LastChargerObjects, chargerObject)
+							}
+						}
+						// if i >= length {
+						// 	continue
+					}
+					states.SaveToFile()
+				}
+			}
+			log.Debug("---------------SELECTED CHARGER SECTION ENDED---------------")
+		}
+	}
 
 	for {
 		appLifecycle.WaitForState("main", model.AppStateRunning)
