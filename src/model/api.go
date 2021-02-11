@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -22,14 +23,15 @@ const (
 
 type (
 	aliasMapValue struct {
-		Connector     int
-		Power         float64
-		MeterValue    float64 `json:"meterValue"`
-		ConnectorType string  `json:"connectorType"`
-		Status        string
-		ErrorCode     string `json:"errorCode"`
-		StatusUpdate  int64  `json:"statusUpdated"`
-		IsFavorite    bool   `json:"isFavorite"`
+		Connector         int
+		Power             float64
+		MeterValue        float64 `json:"meterValue"`
+		ConnectorType     string  `json:"connectorType"`
+		Status            string
+		ErrorCode         string `json:"errorCode"`
+		StatusUpdate      int64  `json:"statusUpdated"`
+		IsFavorite        bool   `json:"isFavorite"`
+		LastChargerObject ChargerObject
 	}
 	Charger2 struct {
 		TimeStamp       int64 `json:"timestamp"`
@@ -42,15 +44,17 @@ type (
 )
 
 type Chargers struct {
-	Data []Charger
+	Data *Charger
 }
 
 type ResetToken struct {
-	Token string `json:"token"`
+	Token    string `json:"token"`
+	DevToken string `json:"devToken,omitempty"`
 }
 
 type LoginToken struct {
-	Token string `json:"token"`
+	Token    string `json:"token"`
+	DevToken string `json:"devToken,omitempty"`
 }
 
 type Charger struct {
@@ -142,21 +146,66 @@ func processHTTPResponse(resp *http.Response, err error, holder interface{}) err
 		log.Error("Bad HTTP return code ", resp.StatusCode)
 		return fmt.Errorf("Bad HTTP return code %d", resp.StatusCode)
 	}
-
 	if err = json.NewDecoder(resp.Body).Decode(holder); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (rt *ResetToken) ResetPassword(phonenr string) (string, error) {
-	log.Debug("Resetting password")
+func StopCharging(deviceId string, connector int, userId string, accessToken string) error {
+	log.Debug("Stopping charging session")
 
 	type Payload struct {
-		Phonenr string `json:"token"`
+		ID        string `json:"cpid"`
+		Connector int    `json:"connector"`
 	}
 	data := Payload{
-		Phonenr: phonenr,
+		ID:        deviceId,
+		Connector: connector,
+	}
+	payloadBytes, err := json.Marshal(data)
+	if err != nil {
+		log.Debug("issue with payloadbytes")
+	}
+	body := bytes.NewReader(payloadBytes)
+
+	req, err := http.NewRequest("POST", stop, body)
+
+	if err != nil {
+		log.Error(fmt.Errorf("Can't stop charging, error: "), err)
+	}
+
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User", userId)
+	req.Header.Set("X-Authorization", accessToken)
+	req.Header.Set("devToken", devToken)
+	resp, err := http.DefaultClient.Do(req)
+
+	defer resp.Body.Close()
+	log.Debug("Request", req)
+	log.Debug("Req body", req.Body)
+	log.Debug("Response", resp)
+	log.Debug("Resp body", resp.Body)
+	if resp.StatusCode != 200 {
+		//bytes, _ := ioutil.ReadAll(resp.Body)
+		log.Error("Bad HTTP return code ", resp.StatusCode)
+		return fmt.Errorf("Bad HTTP return code %d", resp.StatusCode)
+	}
+
+	return err
+}
+
+func (rt *ResetToken) ResetPassword(phonenr string) (string, error) {
+	log.Info("Resetting password")
+
+	type Payload struct {
+		Phonenr   string `json:"token"`
+		DevToken2 string `json:"devToken"`
+	}
+	data := Payload{
+		Phonenr:   phonenr,
+		DevToken2: devToken,
 	}
 	payloadBytes, err := json.Marshal(data)
 	if err != nil {
@@ -172,32 +221,30 @@ func (rt *ResetToken) ResetPassword(phonenr string) (string, error) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("devToken", devToken)
+	// req.Header.Set("devToken", devToken)
 	resp, err := http.DefaultClient.Do(req)
-	processHTTPResponse(resp, err, rt)
-	log.Debug("pwreset token: ", rt.Token)
+
+	processHTTPResponse(resp, err, &rt)
+
+	if err != nil {
+		log.Debug("pwreset token: ", rt.Token)
+	}
+
 	return rt.Token, nil
 }
 
 func (lt *LoginToken) Login(resetToken string, smspw string) (string, error) {
 	log.Debug("Logging in")
 
-	type Payload struct {
-		UserId   string `json:"userId"`
-		Password string `"json:"password"`
-	}
-	data := Payload{
-		UserId:   resetToken,
-		Password: smspw,
-	}
-	payloadBytes, err := json.Marshal(data)
-	if err != nil {
-		log.Debug("issue with payloadBytes")
-	}
-	body := bytes.NewReader(payloadBytes)
+	body := strings.NewReader(fmt.Sprintf(`{
+		"userId": "%s",
+		"password": "%s",
+		"devToken": "%s"
+	}`, resetToken, smspw, devToken))
+	log.Debug("Body: ", body)
 
 	req, err := http.NewRequest("POST", login, body)
-	log.Debug("req: ", req)
+	log.Debug("Req: ", req)
 
 	if err != nil {
 		log.Error(fmt.Errorf("Can't post login request, error: %v", err))
@@ -206,11 +253,11 @@ func (lt *LoginToken) Login(resetToken string, smspw string) (string, error) {
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("devToken", devToken)
+	// req.Header.Set("devToken", devToken)
 
 	resp, err := http.DefaultClient.Do(req)
-
-	processHTTPResponse(resp, err, lt)
+	log.Debug("Resp: ", resp)
+	processHTTPResponse(resp, err, &lt)
 	log.Debug("login token: ", lt.Token)
 	return lt.Token, nil
 }
@@ -250,7 +297,6 @@ func GetAliasMap(userId string, accessToken string) (*Charger2, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
 		log.Error(err)
 	}
-	log.Info(c)
 
 	return c, err
 }
@@ -278,6 +324,33 @@ func get(userId string, accessToken string, url string, target interface{}) erro
 	req.Header.Set("X-Authorization", accessToken)
 	req.Header.Set("devToken", devToken)
 	resp, err := http.DefaultClient.Do(req)
-	processHTTPResponse(resp, err, target)
+	err = processHTTPResponse(resp, err, target)
+	return err
+}
+
+func StartCharging(deviceId string, userId string, accessToken string) error {
+	log.Debug("Starting charging session")
+
+	req, err := http.NewRequest("POST", start, nil)
+
+	if err != nil {
+		log.Error(fmt.Errorf("Can't start charging, error: "), err)
+	}
+
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User", userId)
+	req.Header.Set("X-Authorization", accessToken)
+	req.Header.Set("devToken", devToken)
+	resp, err := http.DefaultClient.Do(req)
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		//bytes, _ := ioutil.ReadAll(resp.Body)
+		log.Error("Bad HTTP return code ", resp.StatusCode)
+		return fmt.Errorf("Bad HTTP return code %d", resp.StatusCode)
+	}
+
 	return err
 }
