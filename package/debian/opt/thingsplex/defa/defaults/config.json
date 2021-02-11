@@ -8,10 +8,10 @@
   "log_file": "/var/log/thingsplex/defa/defa.log",
   "log_level": "debug",
   "log_format": "text",
-  "phoneNr": "4740326828",
-  "smsCode": "603504",
-  "userId": "3df6ccb1-f80f-4820-936e-3ce44b1eeeec",
-  "accessToken": "bp3i934eicl1sdupj9a8nale1q",
+  "phoneNr": "",
+  "smsCode": "",
+  "userId": "",
+  "accessToken": "",
   "poll_time_sec": "15",
   "chargers": []
 }
