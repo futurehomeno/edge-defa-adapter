@@ -21,10 +21,8 @@ type States struct {
 	ConfiguredAt string `json:"configuret_at"`
 	ConfiguredBy string `json:"configures_by"`
 
-	Chargers           Chargers        `json:"chargers"`
-	ChargeSession      *Charging       `json:"charging"`
-	AliasMap           *Charger2       `json:"alias_map"`
-	LastChargerObjects []ChargerObject `json:"last_charger_object"`
+	Chargers      Chargers  `json:"chargers"`
+	ChargeSession *Charging `json:"charging"`
 }
 
 func NewStates(workDir string) *States {
