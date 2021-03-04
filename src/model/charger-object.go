@@ -1,8 +1,9 @@
 package model
 
-type ChargerObject struct {
-	Name       string
-	Status     string
-	Power      float64
-	IsCharging bool
+type StatusObject []struct {
+	Status string
+}
+
+type MeterObject struct {
+	MeterValue int
 }
