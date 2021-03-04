@@ -61,28 +61,55 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 		switch newMsg.Payload.Type {
 		case "cmd.charge.start":
 			// get address
-			for _, charger := range fc.states.Chargers.Data.ReceivingAccess {
-				if addr == charger.ChargePoint.ID {
-					err := model.StartCharging(addr, fc.configs.UserID, fc.configs.AccessToken)
-					if err != nil {
-						log.Error(err)
+			for _, chargers := range fc.states.Chargers.Data.ReceivingAccess {
+				for _, chargepoint := range chargers.ChargePoint.AliasMap {
+					if addr == chargepoint.Name {
+						err := model.StartCharging(chargers.ChargePoint.ID, chargepoint.Connector, fc.configs.UserID, fc.configs.AccessToken)
+						if err != nil {
+							log.Error(err)
+						} else {
+							msgOperatingMode := fimpgo.NewMessage("evt.state.report", "defa", fimpgo.VTypeString, model.SetStatus(("charging")), nil, nil, nil)
+							msgOperatingMode.Source = "defa"
+							adrOperatingMode := &fimpgo.Address{
+								MsgType:         fimpgo.MsgTypeEvt,
+								ResourceType:    fimpgo.ResourceTypeDevice,
+								ResourceName:    model.ServiceName,
+								ResourceAddress: "1",
+								ServiceName:     "chargepoint",
+								ServiceAddress:  addr}
+							fc.mqt.Publish(adrOperatingMode, msgOperatingMode)
+						}
+						// fc.mqt.Publish(adrOperatingMode, msgOperatingMode)
 					}
-					// fc.mqt.Publish(adrOperatingMode, msgOperatingMode)
 				}
 			}
 
 			// send ChargeStart to that address
 		case "cmd.charge.stop":
 			// get address
-			for _, charger := range fc.states.Chargers.Data.ReceivingAccess {
-				if addr == charger.ChargePoint.ID {
-					err := model.StopCharging(addr, 2, fc.configs.UserID, fc.configs.AccessToken)
-					if err != nil {
-						log.Error(err)
+			for _, chargers := range fc.states.Chargers.Data.ReceivingAccess {
+				for _, chargepoint := range chargers.ChargePoint.AliasMap {
+					if addr == chargepoint.Name {
+						err := model.StopCharging(chargers.ChargePoint.ID, chargepoint.Connector, fc.configs.UserID, fc.configs.AccessToken)
+						if err != nil {
+							log.Error(err)
+						} else {
+							msgOperatingMode := fimpgo.NewMessage("evt.state.report", "defa", fimpgo.VTypeString, model.SetStatus(("ready_to_charge")), nil, nil, nil)
+							msgOperatingMode.Source = "defa"
+							adrOperatingMode := &fimpgo.Address{
+								MsgType:         fimpgo.MsgTypeEvt,
+								ResourceType:    fimpgo.ResourceTypeDevice,
+								ResourceName:    model.ServiceName,
+								ResourceAddress: "1",
+								ServiceName:     "chargepoint",
+								ServiceAddress:  addr}
+							fc.mqt.Publish(adrOperatingMode, msgOperatingMode)
+						}
+						// fc.mqt.Publish(adrOperatingMode, msgOperatingMode)
 					}
-					// fc.mqt.Publish(adrOperatingMode, msgOperatingMode)
 				}
 			}
+
 		case "cmd.state.get_report":
 			// TODO
 		case "cmd.smart_charge.set":
@@ -163,13 +190,29 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 					var chargerSelect []interface{}
 					manifest.Configs[0].ValT = "str_map"
 					manifest.Configs[0].UI.Type = "list_checkbox"
-					for _, charger := range fc.states.Chargers.Data.ReceivingAccess {
-						// for _, charger := range data.ReceivingAccess {
-						ChargerID := fmt.Sprintf("%v", charger.ChargePoint.ID)
-						ChargerName := ChargerID
-						chargerSelect = append(chargerSelect, map[string]interface{}{"val": ChargerID, "label": map[string]interface{}{"en": ChargerName}})
-						// }
+					// for _, charger := range fc.states.Chargers.Data.ReceivingAccess {
+					// 	// for _, charger := range data.ReceivingAccess {
+					// 	ChargerID := fmt.Sprintf("%v", charger.ChargePoint.ID)
+					// 	ChargerName := ChargerID
+					// 	chargerSelect = append(chargerSelect, map[string]interface{}{"val": ChargerID, "label": map[string]interface{}{"en": ChargerName}})
+					// 	// }
+					// }
+					for _, chargepoint := range fc.states.Chargers.Data.ReceivingAccess {
+						for _, connector := range chargepoint.ChargePoint.AliasMap {
+							log.Debug("Found new connector, name: ", connector.Name)
+							ChargerName := fmt.Sprintf("%v", connector.Name)
+							chargerSelect = append(chargerSelect, map[string]interface{}{"val": ChargerName, "label": map[string]interface{}{"en": ChargerName}})
+						}
 					}
+
+					// for _, chargePoint := range fc.states.AliasMap.ReceivingAccess {
+					// 	for _, connector := range chargePoint.ChargePoint.AliasMap {
+					// 		log.Debug("Found new connector, name: ", connector.Name)
+					// 		ChargerName := fmt.Sprintf("%v", connector.Name)
+					// 		chargerSelect = append(chargerSelect, map[string]interface{}{"val": ChargerName, "label": map[string]interface{}{"en": ChargerName}})
+					// 	}
+					// }
+
 					manifest.Configs[0].UI.Select = chargerSelect
 				} else {
 					manifest.Configs[0].ValT = "string"
@@ -239,10 +282,10 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				if err != nil {
 					log.Error("Error: ", err)
 				}
-				fc.states.AliasMap, err = model.GetAliasMap(fc.configs.UserID, fc.configs.AccessToken)
-				if err != nil {
-					log.Error("Error: ", err)
-				}
+				// fc.states.AliasMap, err = model.GetAliasMap(fc.configs.UserID, fc.configs.AccessToken)
+				// if err != nil {
+				// 	log.Error("Error: ", err)
+				// }
 				fc.states.ChargeSession, err = model.GetCharging(fc.configs.UserID, fc.configs.AccessToken)
 				if err != nil {
 					log.Error("Error: ", err)
@@ -255,8 +298,12 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				fc.appLifecycle.SetConfigState(model.ConfigStateConfigured)
 				fc.appLifecycle.SetConnectionState(model.ConnStateConnected)
 				fc.appLifecycle.SetAppState(model.AppStateRunning, nil)
+				fc.appLifecycle.SetAuthState(model.AuthStateAuthenticated)
 			} else {
 				fc.appLifecycle.SetConfigState(model.ConfigStateNotConfigured)
+				fc.appLifecycle.SetConnectionState(model.ConnStateDisconnected)
+				fc.appLifecycle.SetAppState(model.AppStateNotConfigured, nil)
+				fc.appLifecycle.SetAuthState(model.AuthStateNotAuthenticated)
 			}
 			if err = fc.configs.SaveToFile(); err != nil {
 				log.Error(err)
@@ -277,15 +324,55 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 			}
 
 			for _, selectedCharger := range fc.configs.SelectedChargers {
-				for _, charger := range fc.states.Chargers.Data.ReceivingAccess {
-					if selectedCharger == charger.ChargePoint.ID {
-						inclReport := ns.MakeInclusionReport(selectedCharger, selectedCharger)
-						msg := fimpgo.NewMessage("evt.thing.inclusion_report", "defa", fimpgo.VTypeObject, inclReport, nil, nil, nil)
-						msg.Source = "defa"
-						adr := fimpgo.Address{MsgType: fimpgo.MsgTypeEvt, ResourceType: fimpgo.ResourceTypeAdapter, ResourceName: "defa", ResourceAddress: "1"}
-						fc.mqt.Publish(&adr, msg)
+				inclReport := ns.MakeInclusionReport(selectedCharger, selectedCharger)
+				msg := fimpgo.NewMessage("evt.thing.inclusion_report", "defa", fimpgo.VTypeObject, inclReport, nil, nil, nil)
+				msg.Source = "defa"
+				adr := fimpgo.Address{MsgType: fimpgo.MsgTypeEvt, ResourceType: fimpgo.ResourceTypeAdapter, ResourceName: "defa", ResourceAddress: "1"}
+				fc.mqt.Publish(&adr, msg)
+
+				for _, chargers := range fc.states.Chargers.Data.ReceivingAccess {
+					for _, chargepoint := range chargers.ChargePoint.AliasMap {
+						if selectedCharger == chargepoint.Name {
+							msgOperatingMode := fimpgo.NewMessage("evt.state.report", "defa", fimpgo.VTypeString, model.SetStatus((chargepoint.Status)), nil, nil, nil)
+							msgOperatingMode.Source = "defa"
+							adrOperatingMode := &fimpgo.Address{
+								MsgType:         fimpgo.MsgTypeEvt,
+								ResourceType:    fimpgo.ResourceTypeDevice,
+								ResourceName:    model.ServiceName,
+								ResourceAddress: "1",
+								ServiceName:     "chargepoint",
+								ServiceAddress:  selectedCharger}
+							fc.mqt.Publish(adrOperatingMode, msgOperatingMode)
+
+							for _, chargeSession := range *fc.states.ChargeSession {
+								if chargeSession.ChargeSession.ChargePointID == chargers.ChargePoint.ID {
+									chargeEnergy := chargepoint.MeterValue - chargeSession.ChargeSession.MeterStart
+									msgPower := fimpgo.NewMessage("evt.current_session.report", "defa", fimpgo.VTypeFloat, chargeEnergy, nil, nil, nil)
+									msgPower.Source = "defa"
+									adrPower := &fimpgo.Address{
+										MsgType:         fimpgo.MsgTypeEvt,
+										ResourceType:    fimpgo.ResourceTypeDevice,
+										ResourceName:    model.ServiceName,
+										ResourceAddress: "1",
+										ServiceName:     "chargepoint",
+										ServiceAddress:  selectedCharger}
+									fc.mqt.Publish(adrPower, msgPower)
+								} else {
+									chargeEnergy := 0
+									msgPower := fimpgo.NewMessage("evt.current_session.report", "defa", fimpgo.VTypeFloat, chargeEnergy, nil, nil, nil)
+									msgPower.Source = "defa"
+									adrPower := &fimpgo.Address{
+										MsgType:         fimpgo.MsgTypeEvt,
+										ResourceType:    fimpgo.ResourceTypeDevice,
+										ResourceName:    model.ServiceName,
+										ResourceAddress: "1",
+										ServiceName:     "chargepoint",
+										ServiceAddress:  selectedCharger}
+									fc.mqt.Publish(adrPower, msgPower)
+								}
+							}
+						}
 					}
-					// if selectedCharger == charger.
 				}
 			}
 
@@ -344,22 +431,36 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 			//flag , _ := newMsg.Payload.GetBoolValue()
 			// TODO: This is an example . Add your logic here or remove
 		case "cmd.thing.delete":
-			// remove device from network
 			val, err := newMsg.Payload.GetStrMapValue()
 			if err != nil {
 				log.Error("Wrong msg format")
 				return
 			}
-			deviceId, ok := val["address"]
+			deviceID, ok := val["address"]
 			if ok {
-				// TODO: This is an example . Add your logic here or remove
-				log.Info(deviceId)
+				val := map[string]interface{}{
+					"address": deviceID,
+				}
+				adr := &fimpgo.Address{MsgType: fimpgo.MsgTypeEvt, ResourceType: fimpgo.ResourceTypeAdapter, ResourceName: "defa", ResourceAddress: "1"}
+				msg := fimpgo.NewMessage("evt.thing.exclusion_report", "defa", fimpgo.VTypeObject, val, nil, nil, newMsg.Payload)
+				fc.mqt.Publish(adr, msg)
+				log.Info("Device with deviceID: ", deviceID, " has been removed from network.")
 			} else {
 				log.Error("Incorrect address")
-
+			}
+		case "cmd.app.uninstall":
+			for _, chargers := range fc.states.Chargers.Data.ReceivingAccess {
+				for _, chargepoint := range chargers.ChargePoint.AliasMap {
+					log.Info("Exluding device: ", chargepoint.Name)
+					val := map[string]interface{}{
+						"address": chargepoint.Name,
+					}
+					msg := fimpgo.NewMessage("evt.thing.exclusion_report", "defa", fimpgo.VTypeObject, val, nil, nil, newMsg.Payload)
+					msg.Source = "defa"
+					adr := fimpgo.Address{MsgType: fimpgo.MsgTypeEvt, ResourceType: fimpgo.ResourceTypeAdapter, ResourceName: "defa", ResourceAddress: "1"}
+					fc.mqt.Publish(&adr, msg)
+				}
 			}
 		}
-
 	}
-
 }
