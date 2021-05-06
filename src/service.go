@@ -83,6 +83,8 @@ func main() {
 	pollString := configs.PollTimeSec
 	pollTime, err := strconv.Atoi(pollString)
 	hasInitialized := false
+	charging := true
+	chargingFalseReported := false
 	// lastStatusObject := model.StatusObject{}
 	// loginToken := *&model.LoginToken{}
 
@@ -91,13 +93,14 @@ func main() {
 	ticker := time.NewTicker(time.Duration(pollTime) * time.Second)
 
 	for range ticker.C {
+		log.Debug("")
 		counter := 0
-		if states.Chargers.Data == nil && (configs.AccessToken == "" || configs.UserID == "") {
+		if configs.AccessToken == "" || configs.UserID == "" {
 			log.Info("User needs to log in.")
 		} else {
 			states.Chargers.LastState = nil
 			states.Chargers.LastEnergy = nil
-			states.Chargers.LastTime = nil
+			// states.Chargers.LastTime = nil
 			for _, selectedCharger := range configs.SelectedChargers {
 				for _, chargers := range states.Chargers.Data.ReceivingAccess {
 					for _, chargepoint := range chargers.ChargePoint.AliasMap {
@@ -105,109 +108,187 @@ func main() {
 							// if chargepoint.LastStatus != model.SetStatus(chargepoint.Status)
 							if hasInitialized {
 								states.Chargers.LastState = append(states.Chargers.LastState, model.SetStatus(chargepoint.Status))
+								// if states.ChargeSession != nil {
 								for _, chargeSession := range *states.ChargeSession {
 									if chargeSession.ChargeSession.ChargePointID == chargers.ChargePoint.ID {
 										states.Chargers.LastEnergy = append(states.Chargers.LastEnergy, chargepoint.MeterValue-chargeSession.ChargeSession.MeterStart)
 									} else {
 										states.Chargers.LastEnergy = append(states.Chargers.LastEnergy, 0)
 									}
-									states.Chargers.LastTime = append(states.Chargers.LastTime, chargepoint.StatusUpdated)
 								}
+								//}
 							} else {
 								states.Chargers.LastState = append(states.Chargers.LastState, "initialized")
-								for range *states.ChargeSession {
-									states.Chargers.LastEnergy = append(states.Chargers.LastEnergy, -1)
+								if states.ChargeSession != nil {
+									for range *states.ChargeSession {
+										states.Chargers.LastEnergy = append(states.Chargers.LastEnergy, -1)
+									}
 								}
+								states.Chargers.LastTime = states.Chargers.Data.Timestamp
 							}
 						}
 					}
 				}
 			}
 
-			log.Debug("Getting chargers...")
 			var err1 error
-			// var err2 error
-			var err3 error
+			var err2 error
+			var newMeterValue float64
 
 			states.Chargers.Data, err1 = model.GetChargers(configs.UserID, configs.AccessToken)
 			if err1 != nil {
 				log.Error("Error1: ", err1)
 			}
-			// states.AliasMap, err2 = model.GetAliasMap(configs.UserID, configs.AccessToken)
-			// if err2 != nil {
-			// 	log.Error("Error2: ", err2)
-			// }
-			states.ChargeSession, err3 = model.GetCharging(configs.UserID, configs.AccessToken)
-			if err3 != nil {
-				log.Error("Error3: ", err3)
-			}
-			if err1 != nil || err3 != nil { // || err 2
-				log.Error("Something is wrong...: ", err1, err3) // , err2
+			states.ChargeSession, err2 = model.GetCharging(configs.UserID, configs.AccessToken)
+			if err2 != nil {
+				log.Info("Error due to no active charging session.")
+				charging = false
+			} else {
+				charging = true
 			}
 
 			states.SaveToFile()
-
-			log.Debug("---------------SELECTED CHARGER SECTION BEGINNING---------------")
-			//
-			hours := time.Now().UnixNano() / 3600000
-
-			log.Debug(hours / 1000000)
-
-			//
 
 			for _, selectedCharger := range configs.SelectedChargers {
 				for _, chargers := range states.Chargers.Data.ReceivingAccess {
 					for _, chargepoint := range chargers.ChargePoint.AliasMap {
 						if selectedCharger == chargepoint.Name {
-							if len(states.Chargers.LastEnergy) > 0 {
-								log.Debug("last state 0: ", states.Chargers.LastState[counter])
-								log.Debug("defa state 0: ", chargepoint.Status)
-								log.Debug("new state 0: ", model.SetStatus(chargepoint.Status))
-								if states.Chargers.LastState[counter] != model.SetStatus(chargepoint.Status) {
-									log.Debug("last state 1: ", states.Chargers.LastState[counter])
-									log.Debug("new state 1: ", model.SetStatus(chargepoint.Status))
-									msgOperatingMode := fimpgo.NewMessage("evt.state.report", "defa", fimpgo.VTypeString, model.SetStatus((chargepoint.Status)), nil, nil, nil)
-									msgOperatingMode.Source = "defa"
-									adrOperatingMode := &fimpgo.Address{
-										MsgType:         fimpgo.MsgTypeEvt,
-										ResourceType:    fimpgo.ResourceTypeDevice,
-										ResourceName:    model.ServiceName,
-										ResourceAddress: "1",
-										ServiceName:     "chargepoint",
-										ServiceAddress:  selectedCharger}
-									mqtt.Publish(adrOperatingMode, msgOperatingMode)
+							if len(states.Chargers.LastState) > 0 {
+								// if states.Chargers.LastState[counter] != model.SetStatus(chargepoint.Status) {
+								val := model.SetStatus(chargepoint.Status)
+								if val == "charging" && charging == false { // This should of course not ever happen, but it has.
+									val = "error"
 								}
+								// log.Info("last state: ", states.Chargers.LastState[counter])
+								log.Info("new state: ", val)
+								msgOperatingMode := fimpgo.NewMessage("evt.state.report", "defa", fimpgo.VTypeString, val, nil, nil, nil)
+								msgOperatingMode.Source = "defa"
+								adrOperatingMode := &fimpgo.Address{
+									MsgType:         fimpgo.MsgTypeEvt,
+									ResourceType:    fimpgo.ResourceTypeDevice,
+									ResourceName:    model.ServiceName,
+									ResourceAddress: "1",
+									ServiceName:     "chargepoint",
+									ServiceAddress:  selectedCharger}
+								mqtt.Publish(adrOperatingMode, msgOperatingMode)
+								// }
+								var cableConnected bool
+								if val == "charging" || val == "ready_to_charge" || val == "finished" {
+									cableConnected = true
+								} else {
+									cableConnected = false
+								}
+								msgCableLock := fimpgo.NewMessage("evt.cable_lock.report", "defa", fimpgo.VTypeBool, cableConnected, nil, nil, nil)
+								msgCableLock.Source = "defa"
+								adrCableLock := &fimpgo.Address{
+									MsgType:         fimpgo.MsgTypeEvt,
+									ResourceType:    fimpgo.ResourceTypeDevice,
+									ResourceName:    model.ServiceName,
+									ResourceAddress: "1",
+									ServiceName:     "chargepoint",
+									ServiceAddress:  selectedCharger}
+								mqtt.Publish(adrCableLock, msgCableLock)
 							}
-							for _, chargeSession := range *states.ChargeSession {
-								if chargeSession.ChargeSession.ChargePointID == chargers.ChargePoint.ID {
-									chargeEnergy := chargepoint.MeterValue - chargeSession.ChargeSession.MeterStart
-									if len(states.Chargers.LastEnergy) > 0 {
-										if states.Chargers.LastEnergy[counter] != chargeEnergy {
-											log.Debug("last energy 1: ", states.Chargers.LastEnergy[counter])
-											log.Debug("new energy 1: ", chargeEnergy)
-											msgPower := fimpgo.NewMessage("evt.current_session.report", "defa", fimpgo.VTypeFloat, chargeEnergy, nil, nil, nil)
-											msgPower.Source = "defa"
-											adrPower := &fimpgo.Address{
-												MsgType:         fimpgo.MsgTypeEvt,
-												ResourceType:    fimpgo.ResourceTypeDevice,
-												ResourceName:    model.ServiceName,
-												ResourceAddress: "1",
-												ServiceName:     "chargepoint",
-												ServiceAddress:  selectedCharger}
-											mqtt.Publish(adrPower, msgPower)
+							if charging == true {
+								chargingFalseReported = false
+								for _, chargeSession := range *states.ChargeSession {
+									// If charging == false, *states.ChargeSession is nil
+									if chargeSession.ChargeSession.ChargePointID == chargers.ChargePoint.ID {
+										chargeEnergy := chargepoint.MeterValue - chargeSession.ChargeSession.MeterStart
+										if len(states.Chargers.LastEnergy) > 0 {
+											if states.Chargers.LastEnergy[counter] != chargeEnergy {
 
-											newMeterValue := (states.Chargers.LastEnergy[counter] - chargeEnergy) / float64((chargepoint.StatusUpdated-states.Chargers.LastTime[counter])/1000000)
-											log.Debug("New meter value: ", newMeterValue)
+												log.Info("new energy 1: ", chargeEnergy)
+
+												// if states.Chargers.LastTime != 0 && states.Chargers.LastEnergy[counter] != -1 {
+												if states.Chargers.LastEnergy[counter] != -1 {
+
+													deltaCharge := chargeEnergy - states.Chargers.LastEnergy[counter]
+													deltaTime := float64((states.Chargers.Data.Timestamp - states.Chargers.LastTime))
+													// log.Debug("deltaCharge: ", deltaCharge)
+													// log.Debug("deltaTime: ", deltaTime)
+													newMeterValue = (deltaCharge / deltaTime) * 3600000000
+													log.Info("New meter value: ", newMeterValue)
+													// log.Info("")
+													states.Chargers.LastTime = states.Chargers.Data.Timestamp
+												} else {
+													deltaCharge := chargeEnergy
+													deltaTime := float64(states.Chargers.Data.Timestamp - chargeSession.ChargeSession.StartTime)
+													newMeterValue = (deltaCharge / deltaTime) * 3600000000
+													log.Info("New (first) meter value: ", newMeterValue)
+													// log.Info("")
+												}
+												// }
+
+												msgEnergy := fimpgo.NewMessage("evt.current_session.report", "defa", fimpgo.VTypeFloat, chargeEnergy, nil, nil, nil)
+												msgEnergy.Source = "defa"
+												adrEnergy := &fimpgo.Address{
+													MsgType:         fimpgo.MsgTypeEvt,
+													ResourceType:    fimpgo.ResourceTypeDevice,
+													ResourceName:    model.ServiceName,
+													ResourceAddress: "1",
+													ServiceName:     "chargepoint",
+													ServiceAddress:  selectedCharger}
+												mqtt.Publish(adrEnergy, msgEnergy)
+
+												props := fimpgo.Props{}
+												props["unit"] = "W"
+												if newMeterValue < 0 {
+													newMeterValue = 0
+												} else if newMeterValue > chargepoint.Power*1000 {
+													newMeterValue = chargepoint.Power * 1000
+												}
+												msgPower := fimpgo.NewMessage("evt.meter.report", "defa", fimpgo.VTypeFloat, newMeterValue, props, nil, nil)
+												msgPower.Source = "defa"
+												adrPower := &fimpgo.Address{
+													MsgType:         fimpgo.MsgTypeEvt,
+													ResourceType:    fimpgo.ResourceTypeDevice,
+													ResourceName:    model.ServiceName,
+													ResourceAddress: "1",
+													ServiceName:     "meter_elec",
+													ServiceAddress:  selectedCharger}
+												mqtt.Publish(adrPower, msgPower)
+											}
 										}
 									}
 								}
+							} else if charging == false && chargingFalseReported == false {
+								chargeEnergy := 0
+								newMeterValue = 0
+								msgEnergy := fimpgo.NewMessage("evt.current_session.report", "defa", fimpgo.VTypeFloat, chargeEnergy, nil, nil, nil)
+								msgEnergy.Source = "defa"
+								adrEnergy := &fimpgo.Address{
+									MsgType:         fimpgo.MsgTypeEvt,
+									ResourceType:    fimpgo.ResourceTypeDevice,
+									ResourceName:    model.ServiceName,
+									ResourceAddress: "1",
+									ServiceName:     "chargepoint",
+									ServiceAddress:  selectedCharger}
+								mqtt.Publish(adrEnergy, msgEnergy)
+
+								props := fimpgo.Props{}
+								props["unit"] = "W"
+								if newMeterValue < 0 {
+									newMeterValue = 0
+								}
+								msgPower := fimpgo.NewMessage("evt.meter.report", "defa", fimpgo.VTypeFloat, newMeterValue, props, nil, nil)
+								msgPower.Source = "defa"
+								adrPower := &fimpgo.Address{
+									MsgType:         fimpgo.MsgTypeEvt,
+									ResourceType:    fimpgo.ResourceTypeDevice,
+									ResourceName:    model.ServiceName,
+									ResourceAddress: "1",
+									ServiceName:     "meter_elec",
+									ServiceAddress:  selectedCharger}
+								mqtt.Publish(adrPower, msgPower)
+
+								chargingFalseReported = true
 							}
 							counter++
 						}
 					}
 				}
 			}
-			log.Debug("---------------SELECTED CHARGER SECTION ENDED---------------")
 		}
 		hasInitialized = true
 	}

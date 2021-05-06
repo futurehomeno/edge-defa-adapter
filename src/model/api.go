@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	BASE_URL   = "https://staging.cloudcharge.se/services/user/"
+	BASE_URL   = "https://prod.cloudcharge.se/services/user/"
 	charging   = BASE_URL + "charging"
 	start      = charging + "/start"
 	stop       = charging + "/stop"
@@ -46,7 +46,7 @@ type (
 	Chargers struct {
 		LastState  []string
 		LastEnergy []float64
-		LastTime   []int64
+		LastTime   int64
 		Data       *Charger
 	}
 
@@ -148,7 +148,7 @@ func processHTTPResponse(resp *http.Response, err error, holder interface{}) err
 	if resp.StatusCode != 200 {
 		//bytes, _ := ioutil.ReadAll(resp.Body)
 		log.Error("Bad HTTP return code ", resp.StatusCode)
-		return fmt.Errorf("Bad HTTP return code %d", resp.StatusCode)
+		// return fmt.Errorf("Bad HTTP return code %d", resp.StatusCode)
 	}
 	if err = json.NewDecoder(resp.Body).Decode(holder); err != nil {
 		return err
@@ -164,7 +164,7 @@ func StopCharging(deviceId string, connector int, userId string, accessToken str
 		"connector": %d
 	}`, deviceId, connector))
 	log.Debug("Stop body: ", payload)
-	req, err := http.NewRequest("POST", start, payload)
+	req, err := http.NewRequest("POST", stop, payload)
 
 	if err != nil {
 		log.Error(fmt.Errorf("Can't stop charging, error: "), err)
@@ -264,7 +264,7 @@ func GetChargers(userId string, accessToken string) (*Charger, error) {
 	}
 	for _, charger := range charger.ReceivingAccess {
 		for key := range charger.ChargePoint.AliasMap {
-			log.Debug("key: ", key)
+			// log.Debug("key: ", key)
 			charger.ChargePoint.AliasMap[key].Name = key
 		}
 	}
@@ -281,7 +281,7 @@ func GetCharging(userId string, accessToken string) (*Charging, error) {
 }
 
 func get(userId string, accessToken string, url string, target interface{}) error {
-	log.Debug("Getting from ", url)
+	// log.Debug("Getting from ", url)
 
 	req, err := http.NewRequest("GET", url, nil)
 
@@ -309,7 +309,7 @@ func StartCharging(deviceId string, connector int, userId string, accessToken st
 	log.Debug("Start body: ", payload)
 	req, err := http.NewRequest("POST", start, payload)
 
-	if err != nil {
+	if err != nil { 
 		log.Error(fmt.Errorf("Can't start charging, error: "), err)
 	}
 

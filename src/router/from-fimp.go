@@ -78,6 +78,9 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 								ServiceName:     "chargepoint",
 								ServiceAddress:  addr}
 							fc.mqt.Publish(adrOperatingMode, msgOperatingMode)
+							for i := range fc.states.Chargers.LastState {
+								fc.states.Chargers.LastState[i] = "unknown"
+							}
 						}
 						// fc.mqt.Publish(adrOperatingMode, msgOperatingMode)
 					}
@@ -104,6 +107,9 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 								ServiceName:     "chargepoint",
 								ServiceAddress:  addr}
 							fc.mqt.Publish(adrOperatingMode, msgOperatingMode)
+							for i := range fc.states.Chargers.LastState {
+								fc.states.Chargers.LastState[i] = "unknown"
+							}
 						}
 						// fc.mqt.Publish(adrOperatingMode, msgOperatingMode)
 					}
@@ -190,13 +196,6 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 					var chargerSelect []interface{}
 					manifest.Configs[0].ValT = "str_map"
 					manifest.Configs[0].UI.Type = "list_checkbox"
-					// for _, charger := range fc.states.Chargers.Data.ReceivingAccess {
-					// 	// for _, charger := range data.ReceivingAccess {
-					// 	ChargerID := fmt.Sprintf("%v", charger.ChargePoint.ID)
-					// 	ChargerName := ChargerID
-					// 	chargerSelect = append(chargerSelect, map[string]interface{}{"val": ChargerID, "label": map[string]interface{}{"en": ChargerName}})
-					// 	// }
-					// }
 					for _, chargepoint := range fc.states.Chargers.Data.ReceivingAccess {
 						for _, connector := range chargepoint.ChargePoint.AliasMap {
 							log.Debug("Found new connector, name: ", connector.Name)
@@ -204,14 +203,6 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 							chargerSelect = append(chargerSelect, map[string]interface{}{"val": ChargerName, "label": map[string]interface{}{"en": ChargerName}})
 						}
 					}
-
-					// for _, chargePoint := range fc.states.AliasMap.ReceivingAccess {
-					// 	for _, connector := range chargePoint.ChargePoint.AliasMap {
-					// 		log.Debug("Found new connector, name: ", connector.Name)
-					// 		ChargerName := fmt.Sprintf("%v", connector.Name)
-					// 		chargerSelect = append(chargerSelect, map[string]interface{}{"val": ChargerName, "label": map[string]interface{}{"en": ChargerName}})
-					// 	}
-					// }
 
 					manifest.Configs[0].UI.Select = chargerSelect
 				} else {
@@ -229,6 +220,11 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				var val model.Value
 				val.Default = "You need to login first"
 				manifest.Configs[0].Val = val
+			}
+			if fc.configs.PhoneNr != "" && fc.configs.SMSCode != "" {
+				manifest.UIBlocks[3].Hidden = false
+			} else {
+				manifest.UIBlocks[3].Hidden = true
 			}
 			msg := fimpgo.NewMessage("evt.app.manifest_report", model.ServiceName, fimpgo.VTypeObject, manifest, nil, nil, newMsg.Payload)
 			msg.Source = "defa"
@@ -425,8 +421,20 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 		case "cmd.network.get_all_nodes":
 			// TODO: This is an example . Add your logic here or remove
 		case "cmd.thing.get_inclusion_report":
-			//nodeId , _ := newMsg.Payload.GetStringValue()
-			// TODO: This is an example . Add your logic here or remove
+			val, err := newMsg.Payload.GetStringValue()
+			if err != nil {
+				log.Error(err)
+			} else {
+				for _, selectedCharger := range fc.configs.SelectedChargers {
+					if selectedCharger == val {
+						inclReport := ns.MakeInclusionReport(selectedCharger, selectedCharger)
+						msg := fimpgo.NewMessage("evt.thing.inclusion_report", "defa", fimpgo.VTypeObject, inclReport, nil, nil, nil)
+						msg.Source = "defa"
+						adr := fimpgo.Address{MsgType: fimpgo.MsgTypeEvt, ResourceType: fimpgo.ResourceTypeAdapter, ResourceName: "defa", ResourceAddress: "1"}
+						fc.mqt.Publish(&adr, msg)
+					}
+				}
+			}
 		case "cmd.thing.inclusion":
 			//flag , _ := newMsg.Payload.GetBoolValue()
 			// TODO: This is an example . Add your logic here or remove
@@ -448,6 +456,47 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 			} else {
 				log.Error("Incorrect address")
 			}
+
+		case "cmd.system.reset":
+			for _, chargers := range fc.states.Chargers.Data.ReceivingAccess {
+				for _, chargepoint := range chargers.ChargePoint.AliasMap {
+					log.Info("Exluding device: ", chargepoint.Name)
+					val := map[string]interface{}{
+						"address": chargepoint.Name,
+					}
+					msg := fimpgo.NewMessage("evt.thing.exclusion_report", "defa", fimpgo.VTypeObject, val, nil, nil, newMsg.Payload)
+					msg.Source = "defa"
+					adr := fimpgo.Address{MsgType: fimpgo.MsgTypeEvt, ResourceType: fimpgo.ResourceTypeAdapter, ResourceName: "defa", ResourceAddress: "1"}
+					fc.mqt.Publish(&adr, msg)
+				}
+			}
+			fc.configs.AccessToken = ""
+			fc.configs.PhoneNr = ""
+			fc.configs.SMSCode = ""
+			fc.configs.SelectedChargers = nil
+			fc.configs.UserID = ""
+			fc.states.Chargers.LastState = nil
+			fc.states.Chargers.LastEnergy = nil
+			fc.states.Chargers.LastTime = 0
+			fc.configs.SaveToFile()
+			fc.states.SaveToFile()
+			val := model.ButtonActionResponse{
+				Operation:       "cmd.system.reset",
+				OperationStatus: "ok",
+				Next:            "config",
+				ErrorCode:       "",
+				ErrorText:       "",
+			}
+			fc.appLifecycle.SetConfigState(model.ConfigStateNotConfigured)
+			fc.appLifecycle.SetAppState(model.AppStateNotConfigured, nil)
+			fc.appLifecycle.SetAuthState(model.AuthStateNotAuthenticated)
+			fc.appLifecycle.SetConnectionState(model.ConnStateDisconnected)
+			msg := fimpgo.NewMessage("evt.app.config_action_report", model.ServiceName, fimpgo.VTypeObject, val, nil, nil, newMsg.Payload)
+			if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
+				// if response topic is not set , sending back to default application event topic
+				log.Error("well look at that, something went wrong")
+			}
+
 		case "cmd.app.uninstall":
 			for _, chargers := range fc.states.Chargers.Data.ReceivingAccess {
 				for _, chargepoint := range chargers.ChargePoint.AliasMap {

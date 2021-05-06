@@ -43,6 +43,16 @@
     }
   ],
   "ui_buttons": [
+    {
+      "id": "reset",
+      "label": {"en": "reset"},
+      "req": {
+        "serv": "defa",
+        "intf_t": "cmd.system.reset",
+        "val": "reset"
+      },
+      "hidden": false
+    }
   ],
   "ui_blocks": [
     {
@@ -67,6 +77,15 @@
       "text": {"en": ""},
       "configs": ["smsCode"],
       "buttons": [],
+      "footer": {"en": ""},
+      "hidden": false
+    },
+    {
+      "id": "Reset",
+      "header": {"en": "Factory reset"},
+      "text": {"en": "This will remove devices, phoneNr and password"},
+      "configs": [],
+      "buttons": ["reset"],
       "footer": {"en": ""},
       "hidden": false
     }
