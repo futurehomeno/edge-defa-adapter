@@ -1,11 +1,11 @@
 version_file=VERSION
 working_dir=$(shell pwd)
 arch="armhf"
-version:= 0.0.1
+version:=`git describe --tags | cut -c 2-`
 remote_host = "fh@cube.local"
 
 clean:
-	-rm  -f ./src/defa
+	-rm  ./src/defa
 
 init:
 	git config core.hooksPath .githooks
@@ -36,7 +36,7 @@ clean-deb:
 package-deb-doc:clean-deb
 	@echo "Packaging application using Thingsplex debian package layout"
 	chmod a+x package/debian/DEBIAN/*
-	mkdir -p package/debian/var/log/thingsplex/defa package/debian/opt/thingsplex/defa/data package debian/usr/bin
+	mkdir -p package/debian/var/log/thingsplex/defa package/debian/opt/thingsplex/defa/data package/debian/usr/bin
 	mkdir -p package/build
 	cp ./src/defa package/debian/opt/thingsplex/defa
 	cp $(version_file) package/debian/opt/thingsplex/defa
@@ -49,7 +49,7 @@ package-docker-amd:build-go-amd
 
 deb-arm : clean configure-arm build-go-arm package-deb-doc
 	@echo "Building Thingsplex ARM package"
-	@mv package/debian.deb package/build/defa_$(version)_armhf.deb
+	mv package/debian.deb package/build/defa_$(version)_armhf.deb
 
 deb-amd : configure-amd64 build-go-amd package-deb-doc
 	@echo "Building Thingsplex AMD package"
