@@ -100,7 +100,6 @@ func main() {
 		} else {
 			states.Chargers.LastState = nil
 			states.Chargers.LastEnergy = nil
-			// states.Chargers.LastTime = nil
 			for _, selectedCharger := range configs.SelectedChargers {
 				for _, chargers := range states.Chargers.Data.ReceivingAccess {
 					for _, chargepoint := range chargers.ChargePoint.AliasMap {
@@ -156,8 +155,8 @@ func main() {
 							if len(states.Chargers.LastState) > 0 {
 								// if states.Chargers.LastState[counter] != model.SetStatus(chargepoint.Status) {
 								val := model.SetStatus(chargepoint.Status)
-								if val == "charging" && charging == false { // This should of course not ever happen, but it has.
-									val = "error"
+								if val == "charging" && charging == false {
+									val = "ready_to_charge"
 								}
 								// log.Info("last state: ", states.Chargers.LastState[counter])
 								log.Info("new state: ", val)
