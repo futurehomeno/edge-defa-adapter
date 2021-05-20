@@ -248,6 +248,7 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 			}
 
 		case "cmd.config.extended_set":
+			opStatus := "ok"
 			conf := model.Configs{}
 			err := newMsg.Payload.GetObjectValue(&conf)
 			if err != nil {
@@ -261,7 +262,9 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				fc.configs.PhoneNr = conf.PhoneNr
 				fc.configs.UserID, err = fc.resetToken.ResetPassword(fc.configs.PhoneNr)
 				if err != nil {
-					log.Error(err)
+					opStatus = "error"
+				} else {
+					opStatus = "ok"
 				}
 			}
 
@@ -271,7 +274,9 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				fc.configs.SMSCode = conf.SMSCode
 				fc.configs.AccessToken, err = fc.loginToken.Login(fc.configs.UserID, fc.configs.SMSCode)
 				if err != nil {
-					log.Error("Error: ", err)
+					opStatus = "error"
+				} else {
+					opStatus = "ok"
 				}
 				log.Debug("Getting chargers...")
 				fc.states.Chargers.Data, err = model.GetChargers(fc.configs.UserID, fc.configs.AccessToken)
@@ -310,7 +315,7 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 			log.Debugf("App reconfigured . New parameters : %v", fc.configs)
 			// TODO: This is an example . Add your logic here or remove
 			configReport := model.ConfigReport{
-				OpStatus: "ok",
+				OpStatus: opStatus,
 				AppState: *fc.appLifecycle.GetAllStates(),
 			}
 			msg := fimpgo.NewMessage("evt.app.config_report", model.ServiceName, fimpgo.VTypeObject, configReport, nil, nil, newMsg.Payload)
