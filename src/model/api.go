@@ -219,12 +219,12 @@ func (rt *ResetToken) ResetPassword(phonenr string) (string, error) {
 	resp, err := http.DefaultClient.Do(req)
 
 	processHTTPResponse(resp, err, &rt)
-
-	if err != nil {
-		log.Debug("pwreset token: ", rt.Token)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("Bad HTTP return code ", resp.StatusCode)
 	}
 
 	return rt.Token, nil
+
 }
 
 func (lt *LoginToken) Login(resetToken string, smspw string) (string, error) {
@@ -252,6 +252,11 @@ func (lt *LoginToken) Login(resetToken string, smspw string) (string, error) {
 	resp, err := http.DefaultClient.Do(req)
 	log.Debug("Resp: ", resp)
 	processHTTPResponse(resp, err, &lt)
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("Bad HTTP return code ", resp.StatusCode)
+	}
+
 	log.Debug("login token: ", lt.Token)
 	return lt.Token, nil
 }
@@ -309,7 +314,7 @@ func StartCharging(deviceId string, connector int, userId string, accessToken st
 	log.Debug("Start body: ", payload)
 	req, err := http.NewRequest("POST", start, payload)
 
-	if err != nil { 
+	if err != nil {
 		log.Error(fmt.Errorf("Can't start charging, error: "), err)
 	}
 
