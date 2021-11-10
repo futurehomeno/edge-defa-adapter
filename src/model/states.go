@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/futurehomeno/edge-defa-adapter/utils"
 	log "github.com/sirupsen/logrus"
-	"github.com/thingsplex/defa/utils"
 )
 
 type States struct {

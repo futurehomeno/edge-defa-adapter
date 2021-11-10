@@ -6,12 +6,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/futurehomeno/edge-defa-adapter/model"
+	"github.com/futurehomeno/edge-defa-adapter/router"
+	"github.com/futurehomeno/edge-defa-adapter/utils"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/discovery"
 	log "github.com/sirupsen/logrus"
-	"github.com/thingsplex/defa/model"
-	"github.com/thingsplex/defa/router"
-	"github.com/thingsplex/defa/utils"
 )
 
 func main() {
