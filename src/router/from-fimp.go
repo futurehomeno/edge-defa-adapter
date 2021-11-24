@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/futurehomeno/edge-defa-adapter/model"
 	"github.com/futurehomeno/fimpgo"
 	log "github.com/sirupsen/logrus"
-	"github.com/thingsplex/defa/model"
 )
 
 type FromFimpRouter struct {

@@ -1,4 +1,4 @@
-module github.com/thingsplex/defa
+module github.com/futurehomeno/edge-defa-adapter
 
 require (
 	github.com/BurntSushi/toml v0.3.1 // indirect
